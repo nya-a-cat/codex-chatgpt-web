@@ -98,6 +98,14 @@ function normalizeBounds(bounds) {
   };
 }
 
+function isChatGptOrigin(value) {
+  try {
+    return new URL(value).origin === CHATGPT_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 function allowedAuthUrl(value) {
   let parsed;
   try {
@@ -422,7 +430,7 @@ class BrowserHost {
     contents.on("did-finish-load", () => {
       tab.url = contents.getURL();
       tab.loading = false;
-      if (tab.url.startsWith(CHATGPT_ORIGIN)) tab.bootstrapReady = true;
+      if (isChatGptOrigin(tab.url)) tab.bootstrapReady = true;
       void contents.insertCSS(CHATGPT_VIEWPORT_CSS).catch(() => {});
       const encoded = JSON.stringify(tab.surfaceId);
       void contents.executeJavaScript(`(() => {
@@ -686,7 +694,7 @@ class BrowserHost {
     await sleep(this.cloudflareChallengeRecoveryDelayMs);
     if (contents.isDestroyed()) throw new Error("ChatGPT browser closed during security-check recovery");
     const url = contents.getURL();
-    if (!url.startsWith(CHATGPT_ORIGIN)) {
+    if (!isChatGptOrigin(url)) {
       throw new Error("ChatGPT security-check recovery lost its owned browser page");
     }
 
@@ -1236,7 +1244,7 @@ class BrowserHost {
       this.show();
       this.logger.info("browser.login_opened");
       const current = this.view.webContents.getURL();
-      if (!current.startsWith(CHATGPT_ORIGIN)) {
+      if (!isChatGptOrigin(current)) {
         await this.view.webContents.loadURL(TEMPORARY_CHAT_URL);
       }
       await this.probeAuthentication();
@@ -1299,7 +1307,7 @@ class BrowserHost {
       });
       return this.snapshot();
     }
-    if (!url.startsWith(CHATGPT_ORIGIN)) {
+    if (!isChatGptOrigin(url)) {
       this.setState({ status: "signed-out", message: "Sign in to ChatGPT", authenticated: false, url });
       return this.snapshot();
     }
@@ -1584,6 +1592,7 @@ module.exports = {
   CHATGPT_VIEWPORT_CSS,
   IDLE_BROWSER_URL,
   isChatGptCloudflareChallengeResponse,
+  isChatGptOrigin,
   isTemporaryChatUrl,
   TEMPORARY_CHAT_URL,
 };
