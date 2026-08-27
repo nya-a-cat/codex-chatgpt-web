@@ -154,8 +154,51 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          bun run verify
-          if ($LASTEXITCODE -ne 0) { throw "project verification failed" }
+          bun run check-version
+          if ($LASTEXITCODE -ne 0) { throw "version verification failed" }
+          bun run audit
+          if ($LASTEXITCODE -ne 0) { throw "root dependency audit failed" }
+          bun run typecheck
+          if ($LASTEXITCODE -ne 0) { throw "root typecheck failed" }
+
+          $rootTests = @(Get-ChildItem -LiteralPath tests -Filter "*.test.ts" -File | Sort-Object Name)
+          if ($rootTests.Count -eq 0) { throw "No root tests found" }
+          foreach ($test in $rootTests) {
+            $relativeTest = [IO.Path]::GetRelativePath($PWD, $test.FullName)
+            Write-Output "Running isolated root test: $relativeTest"
+            bun test $relativeTest
+            if ($LASTEXITCODE -ne 0) { throw "Root test failed: $relativeTest" }
+          }
+
+          bun run launcher:typecheck
+          if ($LASTEXITCODE -ne 0) { throw "launcher typecheck failed" }
+          bun run launcher:test
+          if ($LASTEXITCODE -ne 0) { throw "launcher tests failed" }
+          bun run launcher:build
+          if ($LASTEXITCODE -ne 0) { throw "launcher build failed" }
+
+          $runnerTempPath = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $verifyScratch = Join-Path $runnerTempPath ("codex-chatgpt-web-verify-" + [Guid]::NewGuid().ToString("N"))
+          $runtimeBundle = Join-Path $verifyScratch "runtime"
+          [IO.Directory]::CreateDirectory($verifyScratch) | Out-Null
+          try {
+            bun run scripts/build-runtime-bundle.ts $runtimeBundle
+            if ($LASTEXITCODE -ne 0) { throw "runtime bundle build failed" }
+            bun run scripts/generate-third-party-notices.ts (Join-Path $verifyScratch "THIRD_PARTY_NOTICES.txt") --include-launcher
+            if ($LASTEXITCODE -ne 0) { throw "third-party notices generation failed" }
+            bun run scripts/smoke-release.ts $runtimeBundle
+            if ($LASTEXITCODE -ne 0) { throw "runtime smoke test failed" }
+          } finally {
+            $scratchPath = [IO.Path]::GetFullPath($verifyScratch)
+            $runnerTempPrefix = $runnerTempPath.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+            if (-not $scratchPath.StartsWith($runnerTempPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Refusing to clean verification scratch outside RUNNER_TEMP"
+            }
+            if (Test-Path -LiteralPath $scratchPath) {
+              Remove-Item -LiteralPath $scratchPath -Recurse -Force
+            }
+          }
+
           Push-Location launcher
           bun audit
           if ($LASTEXITCODE -ne 0) { throw "launcher dependency audit failed" }
