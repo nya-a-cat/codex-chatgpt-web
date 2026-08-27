@@ -46,6 +46,77 @@ jobs:
             throw "Updater repository declaration changed; fail closed for review"
           }
 
+          $updateTestPath = "launcher/tests/update.test.cjs"
+          $updateTest = [IO.File]::ReadAllText($updateTestPath)
+          if ($updateTest.Contains("miuuyy/codex-chatgpt-web")) {
+            $updateTest = $updateTest.Replace("miuuyy/codex-chatgpt-web", "nya-a-cat/codex-chatgpt-web")
+            [IO.File]::WriteAllText($updateTestPath, $updateTest, [Text.UTF8Encoding]::new($false))
+          } elseif (-not $updateTest.Contains("nya-a-cat/codex-chatgpt-web")) {
+            throw "Updater tests no longer expose their repository trust root"
+          }
+
+          $browserPath = "launcher/electron/browser-host.cjs"
+          $browser = [IO.File]::ReadAllText($browserPath)
+          $lf = [string][char]10
+          $crlf = ([string][char]13) + $lf
+          $browserNl = if ($browser.Contains($crlf)) { $crlf } else { $lf }
+          if (-not $browser.Contains("function isChatGptOrigin(value) {")) {
+            $prefixNeedle = "startsWith(CHATGPT_ORIGIN)"
+            $prefixCount = [regex]::Matches($browser, [regex]::Escape($prefixNeedle)).Count
+            if ($prefixCount -ne 4) {
+              throw "Expected four reviewed ChatGPT origin-prefix checks, found $prefixCount"
+            }
+            $helper = [string]::Join($browserNl, @(
+              'function isChatGptOrigin(value) {',
+              '  try {',
+              '    return new URL(value).origin === CHATGPT_ORIGIN;',
+              '  } catch {',
+              '    return false;',
+              '  }',
+              '}',
+              '',
+              ''
+            ))
+            $browser = $browser.Replace("function allowedAuthUrl(value) {", "$helper" + "function allowedAuthUrl(value) {")
+            $browser = $browser.Replace("tab.url.startsWith(CHATGPT_ORIGIN)", "isChatGptOrigin(tab.url)")
+            $browser = $browser.Replace("url.startsWith(CHATGPT_ORIGIN)", "isChatGptOrigin(url)")
+            $browser = $browser.Replace("current.startsWith(CHATGPT_ORIGIN)", "isChatGptOrigin(current)")
+          } elseif ($browser.Contains("startsWith(CHATGPT_ORIGIN)")) {
+            throw "A new ChatGPT origin-prefix check appeared after hardening"
+          }
+          $exportAnchor = "  isChatGptCloudflareChallengeResponse,$browserNl  isTemporaryChatUrl,"
+          if (-not $browser.Contains("  isChatGptOrigin,$browserNl")) {
+            if (-not $browser.Contains($exportAnchor)) { throw "Browser-host export anchor changed" }
+            $browser = $browser.Replace($exportAnchor, "  isChatGptCloudflareChallengeResponse,$browserNl  isChatGptOrigin,$browserNl  isTemporaryChatUrl,")
+          }
+          [IO.File]::WriteAllText($browserPath, $browser, [Text.UTF8Encoding]::new($false))
+
+          $browserTestPath = "launcher/tests/browser-host.test.cjs"
+          $browserTest = [IO.File]::ReadAllText($browserTestPath)
+          $testNl = if ($browserTest.Contains($crlf)) { $crlf } else { $lf }
+          $importAnchor = "  isChatGptCloudflareChallengeResponse,$testNl  isTemporaryChatUrl,"
+          if (-not $browserTest.Contains("  isChatGptOrigin,$testNl")) {
+            if (-not $browserTest.Contains($importAnchor)) { throw "Browser-host test import anchor changed" }
+            $browserTest = $browserTest.Replace($importAnchor, "  isChatGptCloudflareChallengeResponse,$testNl  isChatGptOrigin,$testNl  isTemporaryChatUrl,")
+          }
+          $originTestName = 'test("ChatGPT ownership requires an exact origin"'
+          if (-not $browserTest.Contains($originTestName)) {
+            $testMarker = 'test("smoke preserves an already-hydrated Temporary Chat page", () => {'
+            if (-not $browserTest.Contains($testMarker)) { throw "Browser-host origin test insertion point changed" }
+            $originTest = [string]::Join($testNl, @(
+              'test("ChatGPT ownership requires an exact origin", () => {',
+              '  assert.equal(isChatGptOrigin("https://chatgpt.com/?temporary-chat=true"), true);',
+              '  assert.equal(isChatGptOrigin("https://chatgpt.com.evil.example/"), false);',
+              '  assert.equal(isChatGptOrigin("https://chatgpt.com@evil.example/"), false);',
+              '  assert.equal(isChatGptOrigin("not a url"), false);',
+              '});',
+              '',
+              ''
+            ))
+            $browserTest = $browserTest.Replace($testMarker, $originTest + $testMarker)
+          }
+          [IO.File]::WriteAllText($browserTestPath, $browserTest, [Text.UTF8Encoding]::new($false))
+
           $launcher = Get-Content launcher/package.json -Raw | ConvertFrom-Json
           if ($launcher.devDependencies.electron -ne "41.10.3") {
             throw "Electron is not pinned to 41.10.3"
@@ -135,7 +206,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          $paths = @("launcher/package.json", "launcher/bun.lock", "launcher/electron/update.cjs")
+          $paths = @("launcher/package.json", "launcher/bun.lock", "launcher/electron/update.cjs", "launcher/tests/update.test.cjs", "launcher/electron/browser-host.cjs", "launcher/tests/browser-host.test.cjs")
           $changes = git status --porcelain -- @paths
           if (-not $changes) {
             Write-Output "Trusted hardening is already committed"
