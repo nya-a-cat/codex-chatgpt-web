@@ -35,6 +35,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "bun update failed" }
           Pop-Location
 
+          $workspacePath = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $launcherModulesPath = [IO.Path]::GetFullPath((Join-Path $workspacePath "launcher/node_modules"))
+          $workspacePrefix = $workspacePath.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+          if (-not $launcherModulesPath.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean launcher dependencies outside the runner workspace"
+          }
+          if (Test-Path -LiteralPath $launcherModulesPath) {
+            Remove-Item -LiteralPath $launcherModulesPath -Recurse -Force
+          }
+
           $updaterPath = "launcher/electron/update.cjs"
           $content = [IO.File]::ReadAllText($updaterPath)
           $upstream = 'const REPOSITORY = "miuuyy/codex-chatgpt-web";'
