@@ -64,6 +64,8 @@ jobs:
           Push-Location launcher
           bun update electron@41.10.3 --exact --ignore-scripts
           if ($LASTEXITCODE -ne 0) { throw "bun update failed" }
+          bun audit fix
+          if ($LASTEXITCODE -ne 0) { throw "launcher lockfile audit fix failed" }
           Pop-Location
 
           $workspacePath = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
