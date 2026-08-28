@@ -14,6 +14,7 @@ const {
   allowedAuthUrl,
   BrowserHost,
   isChatGptCloudflareChallengeResponse,
+  isChatGptOrigin,
   isTemporaryChatUrl,
   navigationErrorForLog,
   navigationOriginForLog,
@@ -134,6 +135,13 @@ test("browser surface visibility requires both requested and active state", () =
   assert.equal(browserViewVisible(false, true, true), false);
   assert.equal(browserViewVisible(true, true, false), false);
   assert.equal(browserViewVisible(true, true, true), true);
+});
+
+test("ChatGPT ownership requires an exact origin", () => {
+  assert.equal(isChatGptOrigin("https://chatgpt.com/?temporary-chat=true"), true);
+  assert.equal(isChatGptOrigin("https://chatgpt.com.evil.example/"), false);
+  assert.equal(isChatGptOrigin("https://chatgpt.com@evil.example/"), false);
+  assert.equal(isChatGptOrigin("not a url"), false);
 });
 
 test("smoke preserves an already-hydrated Temporary Chat page", () => {
